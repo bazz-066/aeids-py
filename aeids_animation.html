@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+      .bar{
+        fill: steelblue;
+      }
+
+      .bar:hover{
+        fill: brown;
+      }
+
+        .axis {
+          font: 11px sans-serif;
+        }
+
+        .axis path,
+        .axis line {
+          fill: none;
+          stroke: #000000;
+          stroke-width: 2px;
+          shape-rendering: crispEdges;
+        }
+    </style>
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <script src="http://labratrevenge.com/d3-tip/javascripts/d3.tip.v0.6.3.js"></script>
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/css/bootstrap.min.css" integrity="sha384-rwoIResjU2yc3z8GV/NPeZWAv56rSmLldC3R/AZzGRnGxQQKnKkoFVhFQhNUwEyJ" crossorigin="anonymous">
+
+    <script src="https://code.jquery.com/jquery-3.1.1.slim.min.js" integrity="sha384-A7FZj7v+d/sdmMqp/nOQwliLvUsJfDHW+k9Omg/a/EheAdgtzNs3hpfag6Ed950n" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tether/1.4.0/js/tether.min.js" integrity="sha384-DztdAPBWPRXSA/3eYEEUWrWCy7G5KFbe8fFjk5JAIxUYHKkDx6Qin1DkWx51bBrb" crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-alpha.6/js/bootstrap.min.js" integrity="sha384-vBWWzlZJ8ea9aCX4pEW3rVHjgjt7zpkNpZk+02D9phzyeVkE+jo0ieGizqPLForn" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div class="row card">
+        <h3 class="card-header">Byte Frequency</h3>
+        <div class="card-block" id="graph_placeholder"></div>
+    </div>
+    <div class="row">
+        <div class="col-md-4" id="buttons">
+            <div class="card">
+                <h3 class="card-header">Commands</h3>
+                <div class="card-block">
+                    <input class="btn btn-primary btn-lg btn-block" id="btn_continue" disabled type="button" onclick="start()" value="Continue Visualization">
+                    <input class="btn btn-primary btn-lg btn-block" id="btn_stop" type="button" onclick="stop()" value="Stop Visualization">
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <h3 class="card-header">HTTP Message</h3>
+                <div class="card-block">
+                    <textarea rows="20" cols="50" id="txt_payload"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <h3 class="card-header">Connection Status</h3>
+                <div class="card-block">
+                    <div id="mse_placeholder"></div>
+                    <h4 class="card-title" id="div_anomaly" style="color: red;">Prediction : </h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+    // set the dimensions of the canvas
+    var margin = {top: 20, right: 20, bottom: 70, left: 40},
+        width = 2048 - margin.left - margin.right,
+        height = 400 - margin.top - margin.bottom;
+
+
+    // set the ranges
+    var x = d3.scale.ordinal().rangeRoundBands([0, width], 0.1);
+
+    var y = d3.scale.linear().range([height, 0]);
+
+    // define the axis
+    var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("bottom")
+        .ticks(10);
+
+
+    var yAxis = d3.svg.axis()
+        .scale(y)
+        .orient("left")
+        .ticks(10);
+
+
+    // add the SVG element
+    var svg = d3.select("#graph_placeholder").append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform",
+              "translate(" + margin.left + "," + margin.top + ")");
+
+    // set the dimensions of the canvas
+    var mse_margin = {top: 20, right: 20, bottom: 70, left: 40},
+        mse_width = 500 - mse_margin.left - mse_margin.right,
+        mse_height = 400 - mse_margin.top - mse_margin.bottom;
+
+
+    // set the ranges
+    var mse_x = d3.scale.ordinal().rangeRoundBands([0, mse_width], 0.1);
+
+    var mse_y = d3.scale.linear().range([mse_height, 0]);
+
+    // define the axis
+    var mse_xAxis = d3.svg.axis()
+        .scale(mse_x)
+        .orient("bottom");
+
+
+    var mse_yAxis = d3.svg.axis()
+        .scale(mse_y)
+        .orient("left")
+        .ticks(10);
+
+
+    // add the SVG element
+    var mse_svg = d3.select("#mse_placeholder").append("svg")
+        .attr("width", mse_width + mse_margin.left + mse_margin.right)
+        .attr("height", mse_height + mse_margin.top + mse_margin.bottom)
+      .append("g")
+        .attr("transform",
+              "translate(" + mse_margin.left + "," + mse_margin.top + ")");
+
+    function hex2a(hexx) {
+        var hex = hexx.toString();//force conversion
+        var str = '';
+        for (var i = 0; i < hex.length; i += 2)
+            str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+        return str;
+    }
+
+    var done = false;
+    console.log(done);
+    function draw()
+    {
+        // load the data
+        d3.json("http://localhost:8080/next", function(error, msg) {
+            if("error" in msg)
+            {
+                alert(msg.error);
+                clearTimeout(timer);
+                return;
+            }
+
+            data = msg.byte_freq;
+            mseData = msg.status;
+            document.getElementById("txt_payload").value = hex2a(msg.payload);
+
+            if(msg.decision == 1) {
+                document.getElementById("div_anomaly").innerHTML = "Prediction : Anomaly";
+            }
+            else {
+                document.getElementById("div_anomaly").innerHTML = "Prediction : Normal";
+            }
+
+            data.forEach(function(d) {
+                d.Letter = d.Letter;
+                d.Freq = d.Freq;
+            });
+
+            mseData.forEach(function(d) {
+                d.Letter = d.Letter;
+                d.Freq = d.Freq;
+            });
+
+            d3.selectAll('svg > g > *').remove();
+
+              // scale the range of the data
+              x.domain(Array.apply(null, {length: 256}).map(Number.call, Number));
+              y.domain([0, 0.5]);
+
+              var threshold = mseData[0].Freq;
+              console.log(threshold);
+
+              mse_x.domain(d3.extent(mseData, function(d) {return d.Letter;}));
+              mse_y.domain([0, threshold * 3]);
+
+              // add axis
+              svg.append("g")
+                  .attr("class", "x axis")
+                  .attr("transform", "translate(0," + height + ")")
+                  .call(xAxis)
+                .selectAll("text")
+                  .style("text-anchor", "end")
+                  .attr("dx", "-.8em")
+                  .attr("dy", "-.55em")
+                  .attr("transform", "rotate(-90)" );
+
+              svg.append("g")
+                  .attr("class", "y axis")
+                  .call(yAxis)
+                .append("text")
+                  .attr("transform", "rotate(-90)")
+                  .attr("y", 5)
+                  .attr("dy", ".71em")
+                  .style("text-anchor", "end")
+                  .text("Frequency");
+
+               mse_svg.append("g")
+                  .attr("class", "x axis")
+                  .attr("transform", "translate(0," + mse_height + ")")
+                  .call(mse_xAxis)
+                .selectAll("text")
+                  .style("text-anchor", "end")
+                  .attr("dx", "-.8em")
+                  .attr("dy", "-.55em")
+                  .attr("transform", "rotate(-90)" );
+
+              mse_svg.append("g")
+                  .attr("class", "y axis")
+                  .call(mse_yAxis)
+                .append("text")
+                  .attr("transform", "rotate(-90)")
+                  .attr("y", 5)
+                  .attr("dy", ".71em")
+                  .style("text-anchor", "end")
+                  .text("Frequency");
+
+
+          // Add bar chart
+          svg.selectAll("bar")
+              .data(data)
+            .enter().append("rect")
+              .attr("class", "bar")
+              .attr("x", function(d) { return x(d.Letter); })
+              .attr("width", x.rangeBand())
+              .attr("y", function(d) { return y(d.Freq); })
+              .attr("height", function(d) { return height - y(d.Freq); });
+
+          mse_svg.selectAll("bar")
+              .data(mseData)
+            .enter().append("rect")
+              .attr("class", "bar")
+              .attr("x", function(d) { return mse_x(d.Letter); })
+              .attr("width", mse_x.rangeBand())
+              .attr("y", function(d) { return mse_y(d.Freq); })
+              .attr("height", function(d) { return mse_height - mse_y(d.Freq); });
+
+        });
+    }
+
+    var timer = setInterval(draw, 1000);
+
+    function stop()
+    {
+        alert("stop");
+        clearTimeout(timer);
+        document.getElementById("btn_continue").disabled = false;
+        document.getElementById("btn_stop").disabled = true;
+    }
+
+    function start()
+    {
+        timer = setInterval(draw, 1000);
+        document.getElementById("btn_continue").disabled = true;
+        document.getElementById("btn_stop").disabled = false;
+    }
+
+    </script>
+</body>
+</html>
