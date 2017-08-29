@@ -1,7 +1,7 @@
 from BufferedPackets import BufferedPackets
 from OnlinePcapReaderThread import OnlinePcapReaderThread
 from BaseHTTPServer import BaseHTTPRequestHandler
-from aeids import load_mean_stdev, load_autoencoder, decide
+from aeids import load_threshold, load_autoencoder, decide, get_threshold
 
 import binascii
 import json
@@ -15,10 +15,10 @@ prt = None
 protocol = "tcp"
 port = "80"
 autoencoder = None
-mean = 0
-stdev = 0
+t1 = 0
+t2 = 0
 counter = 0
-
+threshold_method = "zscore"
 
 class AeidsWSOnline():
     def __init__(self):
@@ -31,11 +31,13 @@ class AeidsWSOnline():
         global protocol
         global port
         global autoencoder
-        global mean
-        global stdev
+        global t1
+        global t2
 
         autoencoder = load_autoencoder(protocol, port)
-        (mean, stdev) = load_mean_stdev(protocol, port)
+        # Keras bug, have to call function below after loading a model
+        autoencoder._make_predict_function()
+        (t1, t2) = load_threshold(protocol, port, threshold_method)
 
     def run(self):
         self.app.run()
@@ -44,8 +46,8 @@ class AeidsWSOnline():
 class GetMessage:
     def GET(self):
         global autoencoder
-        global mean
-        global stdev
+        global t1
+        global t2
         global counter
 
         msg = {}
@@ -74,10 +76,13 @@ class GetMessage:
 
                 data_x = numpy.reshape(byte_frequency, (1, 256))
                 decoded_x = autoencoder.predict(data_x)
-                error = numpy.sqrt(numpy.mean((decoded_x - data_x) ** 2, axis=1))
+                error = numpy.mean((decoded_x - data_x) ** 2, axis=1)
 
-                decision = decide(error[0], mean, stdev)
-                threshold = float(mean) + 2 * float(stdev)
+                decision = decide(error[0], threshold_method, t1, t2)
+                if threshold_method == "zscore":
+                    error[0] = 0.6745 * (error[0] - float(t1)) / float(t2)
+
+                threshold = get_threshold(threshold_method, t1, t2)
                 status = []
                 status.append({'Letter': 'Threshold', 'Freq': threshold})
                 status.append({'Letter': 'MSE', 'Freq': error[0]})

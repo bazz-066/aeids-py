@@ -7,6 +7,7 @@ from keras.models import model_from_json
 from PcapReaderThread import PcapReaderThread
 from tensorflow import Tensor
 
+import binascii
 import math
 import numpy
 import sys
@@ -37,16 +38,16 @@ import csv
 #         print "Usage : python aeids.py filename [training|testing]"
 #     except KeyboardInterrupt:
 #         print "Good bye to you my trusted friend"
-# root_directory = "/home/baskoro/Documents/Dataset/ISCX12/without retransmission/"
+root_directory = "/home/baskoro/Documents/Dataset/ISCX12/without retransmission/"
 # root_directory = "/home/baskoro/Documents/Dataset/HTTP-Attack-Dataset/morphed-shellcode-attacks/"
-root_directory = "/home/baskoro/Documents/Dataset/HTTP-Attack-Dataset/shellcode-attacks/"
+# root_directory = "/home/baskoro/Documents/Dataset/HTTP-Attack-Dataset/shellcode-attacks/"
 tensorboard_log_enabled = False
 backend = "tensorflow"
 done = False
 prt = None
 
 # possible values: mean, median, zscore
-threshold = "zscore"
+threshold = "median"
 
 
 def main(argv):
@@ -158,15 +159,16 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, state="tr
     print "predict"
 
     if state == "testing":
-        t1, t2 = load_threshold(protocol, port)
+        t1, t2 = load_threshold(protocol, port, threshold)
         fresult = open("results/result-{}{}{}.csv".format(filename, protocol, port), "w")
 
-    ftemp = open("results/data.txt", "wb")
-    fcsv = open("results/data.csv", "wb")
-    a = csv.writer(fcsv, quoting=csv.QUOTE_ALL)
-    time.sleep(2)
-    for i in range(0,1):
-    #while not prt.done or prt.has_ready_message():
+    # ftemp = open("results/data.txt", "wb")
+    # fcsv = open("results/data.csv", "wb")
+    # a = csv.writer(fcsv, quoting=csv.QUOTE_ALL)
+    # time.sleep(2)
+    i_counter = 0
+    # for i in range(0,10):
+    while not prt.done or prt.has_ready_message():
         if not prt.has_ready_message():
             time.sleep(0.0001)
         else:
@@ -175,17 +177,20 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, state="tr
                 continue
             if buffered_packets.get_payload_length() == 0:
                 continue
+
+            i_counter += 1
+            #print "{}-{}: {}".format(i_counter, buffered_packets.id, buffered_packets.get_payload()[:100])
             byte_frequency = buffered_packets.get_byte_frequency()
-            ftemp.write(buffered_packets.get_payload())
-            a.writerow(byte_frequency)
+            # ftemp.write(buffered_packets.get_payload())
+            # a.writerow(byte_frequency)
             data_x = numpy.reshape(byte_frequency, (1, 256))
             decoded_x = autoencoder.predict(data_x)
-            a.writerow(decoded_x[0])
+            # a.writerow(decoded_x[0])
 
-            fcsv.close()
+            # fcsv.close()
             error = numpy.mean((decoded_x - data_x) ** 2, axis=1)
-            ftemp.write("\r\n\r\n{}".format(error))
-            ftemp.close()
+            # ftemp.write("\r\n\r\n{}".format(error))
+            # ftemp.close()
             if state == "training":
                 errors_list.append(error)
             elif state == "testing":
@@ -240,7 +245,7 @@ def save_median_mad(protocol, port, errors_list):
     fmean.close()
 
 
-def load_threshold(protocol, port):
+def load_threshold(protocol, port, threshold):
     if threshold == "mean":
         fmean = open("models/mean-{}{}.txt".format(protocol, port), "r")
     elif threshold == "median":
@@ -251,6 +256,15 @@ def load_threshold(protocol, port):
     split = line.split(",")
     fmean.close()
     return split[0], split[1]
+
+
+def get_threshold(threshold_method, t1, t2):
+    if threshold_method == "mean":
+        return (float(t1) + 2 * float(t2))
+    elif threshold_method == "median":
+        return (float(t1) + float(t2))
+    elif threshold_method == "zscore":
+        return 3.5
 
 
 def decide(mse, threshold_method, t1, t2):

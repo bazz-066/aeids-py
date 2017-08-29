@@ -1,9 +1,11 @@
 from impacket import ImpactDecoder, ImpactPacket
 
+WINDOW_SIZE = 700
+
 class BufferedPackets:
     def __init__(self, first_frame):
         packet = first_frame.child()
-        segment = packet.child
+        segment = packet.child()
 
         if isinstance(segment, ImpactPacket.TCP):
             self.ready = False
@@ -13,7 +15,7 @@ class BufferedPackets:
         self.frames = []
         self.frames.append(first_frame)
         self.id = self.generate_id(first_frame)
-        self.window_counter = 10
+        self.window_counter = WINDOW_SIZE
         self.start_time = 0
         self.read = False
 
@@ -75,7 +77,7 @@ class BufferedPackets:
         last_packet = last_frame.child()
         last_segment = last_packet.child()
 
-        #print id + ">>>>" + self.id
+        # print id + ">>>>" + self.id
         self.window_counter -= 1
 
         if self.id == id and isinstance(new_segment, ImpactPacket.TCP):
@@ -92,15 +94,15 @@ class BufferedPackets:
                 s = n.child()
 
                 if new_segment.get_th_seq() == s.get_th_seq(): #retransmitted packet
-                    self.window_counter += 1
+                    self.window_counter = WINDOW_SIZE
                     return True
                 elif new_segment.get_th_seq() < s.get_th_seq(): # out of order packet
                     self.frames.insert(i, frame)
-                    self.window_counter += 1
+                    self.window_counter = WINDOW_SIZE
                     return True
 
             self.frames.append(frame)
-            self.window_counter += 1
+            self.window_counter = WINDOW_SIZE
             return True
         elif self.id == rev_id and isinstance(new_segment, ImpactPacket.TCP): #frame belongs to the opposite flow
             if new_segment.get_th_seq() == last_segment.get_th_ack():

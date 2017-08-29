@@ -31,9 +31,8 @@ class PcapReaderThread(threading.Thread):
 
             self.parse_packet(header, frame)
 
-        for buffered_packets in self.connection_list:
-            if not buffered_packets.ready:
-                buffered_packets.ready = True
+        ready_indices = range(0, len(self.connection_list))
+        self.move_ready_packets(ready_indices)
 
         #self.clean_no_payload()
 
