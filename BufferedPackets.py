@@ -1,6 +1,6 @@
 from impacket import ImpactDecoder, ImpactPacket
 
-WINDOW_SIZE = 700
+WINDOW_SIZE = 50
 
 class BufferedPackets:
     def __init__(self, first_frame):
