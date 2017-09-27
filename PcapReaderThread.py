@@ -145,7 +145,7 @@ class PcapReaderThread(threading.Thread):
 
     def reset_read_status(self):
         self.lock.acquire()
-        print "Resetting read status"
+        # print "Resetting read status"
         for buffered_packets in self.ready_connection_list:
             buffered_packets.read = False
 

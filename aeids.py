@@ -56,7 +56,7 @@ threshold = "median"
 def main(argv):
     try:
         # validate command line arguments
-        if sys.argv[1] != "training" and sys.argv[1] != "predicting" and sys.argv[1] != "testing":
+        if sys.argv[1] != "training" and sys.argv[1] != "predicting" and sys.argv[1] != "testing" and sys.argv[1] != "counting":
             raise IndexError("Phase {} does not exist.".format(sys.argv[1]))
         else:
             phase = sys.argv[1]
@@ -73,31 +73,40 @@ def main(argv):
 
         # must be in form of comma separated, representing half of the layers (e.g. 200,100 means there are 3 layers,
         # with 200, 100, and 200 neurons respectively)
-        try:
-            hidden_layers = sys.argv[4].split(",")
-            for neurons in hidden_layers:
-                if not neurons.isdigit():
-                    raise IndexError("Hidden layers must be comma separated numeric values")
-        except ValueError:
-            raise IndexError("Hidden layers must be comma separated numeric values")
+        if phase != "counting":
+            try:
+                hidden_layers = sys.argv[4].split(",")
+                for neurons in hidden_layers:
+                    if not neurons.isdigit():
+                        raise IndexError("Hidden layers must be comma separated numeric values")
+            except ValueError:
+                raise IndexError("Hidden layers must be comma separated numeric values")
 
-        if sys.argv[5] not in activation_functions:
-            raise IndexError("Activation function must be one of the following list")
+            if sys.argv[5] not in activation_functions:
+                raise IndexError("Activation function must be one of the following list")
+            else:
+                activation_function = sys.argv[5]
+
+            try:
+                dropout = float(sys.argv[6])
+            except ValueError:
+                raise IndexError("Dropout must be numeric.")
+
+            if phase == "training" and not sys.argv[8].isdigit():
+                raise IndexError("Batch size must be numeric.")
+            elif phase == "training":
+                batch_size = int(sys.argv[8])
+
+            filename = argv[7]
+            if phase == "testing":
+                aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, sys.argv[8])
+            else:
+                aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, batch_size=batch_size)
         else:
-            activation_function = sys.argv[5]
+            count_byte_freq(argv[4], protocol, port)
 
-        try:
-            dropout = float(sys.argv[6])
-        except ValueError:
-            raise IndexError("Dropout must be numeric.")
-
-        filename = argv[7]
-        if phase == "testing":
-            aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, sys.argv[8])
-        else:
-            aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout)
     except IndexError as e:
-        print("Usage: python aeids.py <training|predicting|testing> <tcp|udp> <port> <hidden_layers> <activation_function> <dropout> <training filename> [testing filename]")
+        print("Usage: python aeids.py <training|predicting|testing|counting> <tcp|udp> <port> <hidden_layers> <activation_function> <dropout> <training filename> [batch_size] [testing filename]")
         print traceback.print_exc()
         exit(0)
     except KeyboardInterrupt:
@@ -110,7 +119,7 @@ def main(argv):
             prt.done = True
 
 
-def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_layers = [200,100], activation_function = "relu", dropout = 0.0, testing_filename = ""):
+def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_layers = [200,100], activation_function = "relu", dropout = 0.0, testing_filename = "", batch_size = 1):
     global done
     read_conf()
 
@@ -119,15 +128,20 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
 
         autoencoder = init_model(hidden_layers, activation_function, dropout)
 
+        if "{}-{}".format(filename, port) in conf["training_filename"]:
+            steps_per_epoch = conf["training_filename"]["{}-{}".format(filename, port)] / batch_size
+        else:
+            steps_per_epoch = conf["training_filename"]["default-80"] / batch_size
+
         if tensorboard_log_enabled and backend == "tensorflow":
             tensorboard_callback = TensorBoard(log_dir="./logs", batch_size=10000, write_graph=True, write_grads=True,
                                                histogram_freq=1)
-            autoencoder.fit_generator(byte_freq_generator(filename, protocol, port), steps_per_epoch=100,
+            autoencoder.fit_generator(byte_freq_generator(filename, protocol, port, batch_size), steps_per_epoch=100,
                                       epochs=100, verbose=1, callbacks=[tensorboard_callback])
             check_directory(filename, "models")
             autoencoder.save("models/{}/aeids-with-log-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
         else:
-            autoencoder.fit_generator(byte_freq_generator(filename, protocol, port), steps_per_epoch=12000,
+            autoencoder.fit_generator(byte_freq_generator(filename, protocol, port, batch_size), steps_per_epoch=steps_per_epoch,
                                       epochs=10, verbose=1)
             check_directory(filename, "models")
             autoencoder.save("models/{}/aeids-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
@@ -158,6 +172,7 @@ def read_conf():
         exit(-1)
 
     conf["root_directory"] = []
+    conf["training_filename"] = {"default-80": 100000}
     lines = fconf.readlines()
     for line in lines:
         if line.startswith("#"):
@@ -166,6 +181,9 @@ def read_conf():
         print split
         if split[0] == "root_directory":
             conf["root_directory"].append(split[1].strip())
+        elif split[0] == "training_filename":
+            tmp = split[1].split(":")
+            conf["training_filename"]["{}-{}".format(tmp[0], tmp[1])] = int(tmp[2])
 
     fconf.close()
 
@@ -205,11 +223,12 @@ def load_autoencoder(filename, protocol, port, hidden_layers, activation_functio
     return autoencoder
 
 
-def byte_freq_generator(filename, protocol, port):
+def byte_freq_generator(filename, protocol, port, batch_size):
     global prt
     global conf
     prt = PcapReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
+    counter = 0
 
     while not done:
         while not prt.done or prt.has_ready_message():
@@ -223,8 +242,20 @@ def byte_freq_generator(filename, protocol, port):
                     continue
                 if buffered_packets.get_payload_length() > 0:
                     byte_frequency = buffered_packets.get_byte_frequency()
-                    dataX = numpy.reshape(byte_frequency, (1, 256))
-                    yield dataX, dataX
+                    X = numpy.reshape(byte_frequency, (1, 256))
+
+                    if counter == 0 or counter % batch_size == 1:
+                        dataX = X
+                    else:
+                        dataX = numpy.r_["0,2", dataX, X]
+
+                    counter += 1
+
+                    if counter % batch_size == 0:
+                        yield dataX, dataX
+
+        if dataX.shape[0] > 0:
+            yield dataX, dataX
 
         prt.reset_read_status()
 
@@ -300,6 +331,34 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
         save_median_mad(filename, protocol, port, hidden_layers, activation_function, dropout, errors_list)
     elif phase == "testing":
         fresult.close()
+
+
+def count_byte_freq(filename, protocol, port):
+    global prt
+    global conf
+
+    read_conf()
+
+    prt = PcapReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+    prt.start()
+    prt.delete_read_connections = True
+    counter = 0
+
+    while not prt.done or prt.has_ready_message():
+        if not prt.has_ready_message():
+            time.sleep(0.0001)
+            continue
+        else:
+            buffered_packets = prt.pop_connection()
+            if buffered_packets is None:
+                time.sleep(0.0001)
+                continue
+            if buffered_packets.get_payload_length() > 0:
+                counter += 1
+                sys.stdout.write("\r{} flows.".format(counter))
+                sys.stdout.flush()
+
+    print "Total flows: {}".format(counter)
 
 
 def save_mean_stdev(filename, protocol, port, hidden_layers, activation_function, dropout, errors_list):
