@@ -1,4 +1,4 @@
-from BufferedPackets import BufferedPackets
+from BufferedPackets import WINDOW_SIZE
 from keras.callbacks import TensorBoard
 from keras.models import load_model
 from keras.models import Model
@@ -11,6 +11,8 @@ import binascii
 import math
 import numpy
 import os
+import psycopg2
+import psycopg2.extras
 import sys
 import thread
 import time
@@ -48,6 +50,7 @@ done = False
 prt = None
 conf = {}
 activation_functions = ["elu", "selu", "softplus", "softsign", "relu", "tanh", "sigmoid", "hard_sigmoid", "linear", "softmax"]
+conn = None
 
 # possible values: mean, median, zscore
 threshold = "median"
@@ -142,7 +145,7 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
             autoencoder.save("models/{}/aeids-with-log-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
         else:
             autoencoder.fit_generator(byte_freq_generator(filename, protocol, port, batch_size), steps_per_epoch=steps_per_epoch,
-                                      epochs=10, verbose=1)
+                                      epochs=50, verbose=1)
             check_directory(filename, "models")
             autoencoder.save("models/{}/aeids-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
 
@@ -281,9 +284,11 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
     if phase == "testing":
         t1, t2 = load_threshold(filename, protocol, port, hidden_layers, activation_function, dropout)
         check_directory(filename, "results")
-        fresult = open("results/{}/result-{}-hl{}-af{}-do{}-{}.csv".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout, testing_filename), "w")
-        if fresult is None:
-            raise Exception("Could not create file")
+        # fresult = open("results/{}/result-{}-hl{}-af{}-do{}-{}.csv".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout, testing_filename), "w")
+        open_conn()
+        experiment_id = create_experiment(filename, testing_filename, protocol, port, ",".join(hidden_layers), activation_function, dropout)
+        # if fresult is None:
+        #     raise Exception("Could not create file")
 
     # ftemp = open("results/data.txt", "wb")
     # fcsv = open("results/data.csv", "wb")
@@ -318,7 +323,8 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
                 errors_list.append(error)
             elif phase == "testing":
                 decision = decide(error[0], t1, t2)
-                fresult.write("{},{},{},{},{}\n".format(buffered_packets.id, error[0], decision[0], decision[1], decision[2]))
+                # fresult.write("{},{},{},{},{},{}\n".format(buffered_packets.id, error[0], decision[0], decision[1], decision[2], buffered_packets.get_hexlify_payload()))
+                write_results_to_db(experiment_id, buffered_packets, error, decision)
 
             counter += 1
             sys.stdout.write("\rCalculated {} connections.".format(counter))
@@ -330,7 +336,8 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
         save_q3_iqr(filename, protocol, port, hidden_layers, activation_function, dropout, errors_list)
         save_median_mad(filename, protocol, port, hidden_layers, activation_function, dropout, errors_list)
     elif phase == "testing":
-        fresult.close()
+        # fresult.close()
+        return
 
 
 def count_byte_freq(filename, protocol, port):
@@ -437,20 +444,20 @@ def decide(mse, t1, t2):
     decision = []
 
     if mse > (float(t1[0]) + 2 * float(t2[0])):
-        decision.append(1)
+        decision.append(True)
     else:
-        decision.append(0)
+        decision.append(False)
 
     if mse > (float(t1[1]) + float(t2[1])):
-        decision.append(1)
+        decision.append(True)
     else:
-        decision.append(0)
+        decision.append(False)
 
     zscore = 0.6745 * (mse - float(t1[2])) / float(t2[2])
     if zscore > 3.5 or zscore < -3.5:
-        decision.append(1)
+        decision.append(True)
     else:
-        decision.append(0)
+        decision.append(False)
 
     return decision
 
@@ -465,6 +472,77 @@ def get_pcap_file_fullpath(filename):
     for i in range(0, len(conf["root_directory"])):
         if os.path.isfile(conf["root_directory"][i] + filename):
             return conf["root_directory"][i] + filename
+
+
+def open_conn():
+    global conn
+
+    conn = psycopg2.connect(host="localhost", database="aeids", user="postgres", password="postgres")
+    conn.set_client_encoding('Latin1')
+
+
+def create_experiment(training_filename, testing_filename, protocol, port, hidden_layer, activation_function, dropout):
+    global conn
+
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor.execute("SELECT * FROM experiments WHERE training_filename=%s AND testing_filename=%s AND protocol=%s AND port=%s AND hidden_layers=%s AND activation_function=%s AND dropout=%s", (training_filename, testing_filename, protocol, port, hidden_layer, activation_function, dropout))
+
+    if cursor.rowcount > 0: # There is an existing experiment, get the ID
+        row = cursor.fetchone()
+        return row["id"]
+    else:
+        cursor.execute("INSERT INTO experiments(training_filename, testing_filename, protocol, port, hidden_layers, activation_function, dropout) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id", (training_filename, testing_filename, protocol, port, hidden_layer, activation_function, dropout))
+        if cursor.rowcount == 1:
+            row = cursor.fetchone()
+            conn.commit()
+            return row["id"]
+        else:
+            raise Exception("Cannot insert a new experiment")
+
+
+def get_message_id(buffered_packet):
+    global conn
+
+    tmp = buffered_packet.id.split("-")
+    src_addr = tmp[0]
+    src_port = tmp[1]
+    dst_addr = tmp[2]
+    dst_port = tmp[3]
+    protocol = tmp[4]
+    start_time = buffered_packet.get_start_time()
+    stop_time = buffered_packet.get_stop_time()
+
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cursor.execute("SELECT * FROM messages WHERE src_ip=%s AND src_port=%s AND dst_ip=%s AND dst_port=%s AND "
+                   "protocol=%s AND window_size=%s AND start_time=%s AND stop_time=%s", (src_addr, src_port, dst_addr, dst_port, protocol, WINDOW_SIZE, start_time, stop_time))
+
+    if cursor.rowcount > 0:
+        row = cursor.fetchone()
+        return row["id"]
+    else:
+        cursor.execute("""INSERT INTO messages (src_ip, src_port, dst_ip, dst_port, protocol, start_time, stop_time, """
+                       """payload, window_size) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                       (src_addr, src_port, dst_addr, dst_port, protocol, start_time, stop_time,
+                        psycopg2.Binary(buffered_packet.get_payload()), WINDOW_SIZE))
+        if cursor.rowcount == 1:
+            row = cursor.fetchone()
+            conn.commit()
+            return row["id"]
+        else:
+            raise Exception("Cannot insert a new message")
+
+
+def write_results_to_db(experiment_id, buffered_packet, error, decision):
+    global conn
+
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    message_id = get_message_id(buffered_packet)
+
+    cursor.execute("UPDATE mse_results SET mse=%s, decision_mean=%s, decision_median=%s, decision_zscore=%s WHERE messages_id=%s AND experiments_id=%s", (error[0], decision[0], decision[1], decision[2], message_id, experiment_id))
+    if cursor.rowcount == 0: # The row doesn't exist
+        cursor.execute("INSERT INTO mse_results (experiments_id, messages_id, mse, decision_mean, decision_median, decision_zscore) VALUES (%s, %s, %s, %s, %s, %s)", (experiment_id, message_id, error[0], decision[0], decision[1], decision[2]))
+
+    conn.commit()
 
 
 if __name__ == '__main__':

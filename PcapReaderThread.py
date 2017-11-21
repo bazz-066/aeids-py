@@ -69,7 +69,7 @@ class PcapReaderThread(threading.Thread):
                 if buffered_packets.ready:
                     ready_indices.append(i)
 
-            buffered_packets = BufferedPackets(ether)
+            buffered_packets = BufferedPackets(header, ether)
             self.connection_list.append(buffered_packets)
             self.lock.release()
             if len(ready_indices) > 0:

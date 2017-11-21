@@ -1,9 +1,11 @@
+import binascii
+
 from impacket import ImpactDecoder, ImpactPacket
 
 WINDOW_SIZE = 50
 
 class BufferedPackets:
-    def __init__(self, first_frame):
+    def __init__(self, first_header, first_frame):
         packet = first_frame.child()
         segment = packet.child()
 
@@ -14,9 +16,11 @@ class BufferedPackets:
 
         self.frames = []
         self.frames.append(first_frame)
+        self.headers = []
+        self.headers.append(first_header)
         self.id = self.generate_id(first_frame)
         self.window_counter = WINDOW_SIZE
-        self.start_time = 0
+        self.start_time = float(str(first_header.getts()[0]) + "." + str(first_header.getts()[1]))
         self.read = False
 
     def check_counter(self):
@@ -42,7 +46,7 @@ class BufferedPackets:
             return "{}-{}-{}-{}-{}".format(src_addr, src_port, dst_addr, dst_port, protocol)
         elif isinstance(segment, ImpactPacket.ICMP):
             protocol = "icmp"
-            return "{}-{}-{}".format(src_addr, dst_addr, protocol)
+            return "{}-0-{}-0-{}".format(src_addr, dst_addr, protocol)
 
     def generate_reverse_id(self, frame):
         packet = frame.child()
@@ -63,7 +67,7 @@ class BufferedPackets:
             return "{}-{}-{}-{}-{}".format(dst_addr, dst_port, src_addr, src_port, protocol)
         elif isinstance(segment, ImpactPacket.ICMP):
             protocol = "icmp"
-            return "{}-{}-{}".format(dst_addr, src_addr, protocol)
+            return "{}-0-{}-0-{}".format(dst_addr, src_addr, protocol)
 
     def add_frame(self, frame):
         if self.ready:
@@ -127,6 +131,17 @@ class BufferedPackets:
                 payload += segment.get_data_as_string()
 
         return payload
+
+    def get_start_time(self):
+        return self.start_time
+
+    def get_stop_time(self):
+        last_header = self.headers[-1]
+        return float(str(last_header.getts()[0]) + "." + str(last_header.getts()[1]))
+
+    def get_hexlify_payload(self):
+        payload = self.get_payload()
+        return binascii.hexlify(payload)
 
     def get_byte_frequency(self):
         byte_frequency = [0] * 256
