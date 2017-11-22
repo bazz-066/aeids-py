@@ -99,7 +99,7 @@ def main(argv):
 
             if phase == "training" and not sys.argv[8].isdigit():
                 raise IndexError("Batch size must be numeric.")
-            elif phase == "training":
+            elif phase == "training" or phase == "predicting":
                 batch_size = int(sys.argv[8])
 
             filename = argv[7]
@@ -147,7 +147,7 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
             autoencoder.save("models/{}/aeids-with-log-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
         else:
             autoencoder.fit_generator(byte_freq_generator(filename, protocol, port, batch_size), steps_per_epoch=steps_per_epoch,
-                                      epochs=50, verbose=1)
+                                      epochs=20, verbose=1)
             check_directory(filename, "models")
             autoencoder.save("models/{}/aeids-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
 
@@ -239,13 +239,11 @@ def byte_freq_generator(filename, protocol, port, batch_size):
         while not prt.done or prt.has_ready_message():
             if not prt.has_ready_message():
                 time.sleep(0.0001)
-                print("111111")
                 continue
             else:
                 buffered_packets = prt.pop_connection()
                 if buffered_packets is None:
                     time.sleep(0.0001)
-                    print("22222222")
                     continue
                 if buffered_packets.get_payload_length("client") > 0:
                     byte_frequency = buffered_packets.get_byte_frequency("client")
@@ -354,19 +352,24 @@ def count_byte_freq(filename, protocol, port):
     prt.start()
     prt.delete_read_connections = True
     counter = 0
+    missed_counter = 0
 
     while not prt.done or prt.has_ready_message():
         if not prt.has_ready_message():
             time.sleep(0.0001)
+            missed_counter += 1
             continue
         else:
+            start = time.time()
             buffered_packets = prt.pop_connection()
+            end = time.time()
             if buffered_packets is None:
                 time.sleep(0.0001)
+                missed_counter += 1
                 continue
             if buffered_packets.get_payload_length("client") > 0:
                 counter += 1
-                sys.stdout.write("\r{} flows.".format(counter))
+                sys.stdout.write("\r{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end-start))
                 sys.stdout.flush()
 
     print "Total flows: {}".format(counter)

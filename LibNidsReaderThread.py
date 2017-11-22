@@ -1,3 +1,4 @@
+from collections import deque
 from TcpMessage import TcpMessage
 
 import nids
@@ -13,7 +14,7 @@ class LibNidsReaderThread(threading.Thread):
         self.port = port
         self.protocol = protocol
         self.done = False
-        self.connection_list = []
+        self.connection_list = deque()
         self.lock = threading.Lock()
         self.delete_read_connections = False
         self.last_read_index = -1
@@ -28,6 +29,7 @@ class LibNidsReaderThread(threading.Thread):
 
         try:
             nids.run()
+            print("DONE")
             self.done = True
         except nids.error, e:
             print "[-] Error: %s" % (e)
@@ -49,8 +51,8 @@ class LibNidsReaderThread(threading.Thread):
             #                                                    len(tcp.server.data[:tcp.server.count]),
             #                                                    len(tcp.client.data[:tcp.client.count]))
 
-            self.lock.acquire()
             msg = TcpMessage(tcp.client.data, tcp.server.data, (src, sport, dst, dport))
+            self.lock.acquire()
             self.connection_list.append(msg)
             self.lock.release()
 
@@ -58,8 +60,7 @@ class LibNidsReaderThread(threading.Thread):
         self.lock.acquire()
 
         if self.delete_read_connections and len(self.connection_list) > 0:
-            msg = self.connection_list[0]
-            del self.connection_list[0]
+            msg = self.connection_list.pop()
             self.lock.release()
             return msg
         elif len(self.connection_list) > 0:
@@ -73,6 +74,7 @@ class LibNidsReaderThread(threading.Thread):
                 self.lock.release()
                 return msg
         else:
+            self.lock.release()
             return None
 
     def has_ready_message(self):
@@ -82,13 +84,14 @@ class LibNidsReaderThread(threading.Thread):
             self.lock.release()
             return True
         elif len(self.connection_list) > 0:
-            if self.last_read_index == len(self.connection_list) - 1:
+            if self.last_read_index >= len(self.connection_list) - 1:
                 self.lock.release()
                 return False
             else:
                 self.lock.release()
                 return True
         else:
+            self.lock.release()
             return False
 
     def reset_read_status(self):
