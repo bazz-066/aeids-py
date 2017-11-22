@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 class TcpMessage():
     def __init__(self, client_data, server_data, tcp_tuple):
         self.client_data = client_data

@@ -321,7 +321,7 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
             error = numpy.mean((decoded_x - data_x) ** 2, axis=1)
             # ftemp.write("\r\n\r\n{}".format(error))
             # ftemp.close()
-            if phase == "training":
+            if phase == "training" or phase == "predicting":
                 errors_list.append(error)
             elif phase == "testing":
                 decision = decide(error[0], t1, t2)

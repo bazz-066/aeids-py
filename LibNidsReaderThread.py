@@ -8,7 +8,7 @@ end_states = (nids.NIDS_CLOSE, nids.NIDS_TIMEOUT, nids.NIDS_RESET)
 
 
 class LibNidsReaderThread(threading.Thread):
-    def __init__(self, filename, protocol, port):
+    def __init__(self, filename, protocol, port=None):
         threading.Thread.__init__(self)
 
         self.port = port
@@ -21,7 +21,10 @@ class LibNidsReaderThread(threading.Thread):
 
         nids.param("filename", filename)
         nids.chksum_ctl([('0.0.0.0/0', False)])
-        nids.param("pcap_filter", "{} port {}".format(self.protocol, self.port))
+        if port is None:
+            nids.param("pcap_filter", "{}".format(self.protocol))
+        else:
+            nids.param("pcap_filter", "{} port {}".format(self.protocol, self.port))
 
     def run(self):
         nids.init()
