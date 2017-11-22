@@ -4,8 +4,10 @@ from keras.models import load_model
 from keras.models import Model
 from keras.layers import Dense, Input, Dropout
 from keras.models import model_from_json
+from LibNidsReaderThread import LibNidsReaderThread
 from PcapReaderThread import PcapReaderThread
 from tensorflow import Tensor
+from TcpMessage import TcpMessage
 
 import binascii
 import math
@@ -229,7 +231,7 @@ def load_autoencoder(filename, protocol, port, hidden_layers, activation_functio
 def byte_freq_generator(filename, protocol, port, batch_size):
     global prt
     global conf
-    prt = PcapReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+    prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
     counter = 0
 
@@ -237,14 +239,16 @@ def byte_freq_generator(filename, protocol, port, batch_size):
         while not prt.done or prt.has_ready_message():
             if not prt.has_ready_message():
                 time.sleep(0.0001)
+                print("111111")
                 continue
             else:
                 buffered_packets = prt.pop_connection()
                 if buffered_packets is None:
                     time.sleep(0.0001)
+                    print("22222222")
                     continue
-                if buffered_packets.get_payload_length() > 0:
-                    byte_frequency = buffered_packets.get_byte_frequency()
+                if buffered_packets.get_payload_length("client") > 0:
+                    byte_frequency = buffered_packets.get_byte_frequency("client")
                     X = numpy.reshape(byte_frequency, (1, 256))
 
                     if counter == 0 or counter % batch_size == 1:
@@ -269,9 +273,9 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
 
     if prt is None:
         if phase == "testing":
-            prt = PcapReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
+            prt = LibNidsReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
         else:
-            prt = PcapReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+            prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
         prt.start()
     else:
         prt.reset_read_status()
@@ -303,12 +307,12 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
             buffered_packets = prt.pop_connection()
             if buffered_packets is None:
                 continue
-            if buffered_packets.get_payload_length() == 0:
+            if buffered_packets.get_payload_length("client") == 0:
                 continue
 
             i_counter += 1
             #print "{}-{}: {}".format(i_counter, buffered_packets.id, buffered_packets.get_payload()[:100])
-            byte_frequency = buffered_packets.get_byte_frequency()
+            byte_frequency = buffered_packets.get_byte_frequency("client")
             # ftemp.write(buffered_packets.get_payload())
             # a.writerow(byte_frequency)
             data_x = numpy.reshape(byte_frequency, (1, 256))
@@ -346,7 +350,7 @@ def count_byte_freq(filename, protocol, port):
 
     read_conf()
 
-    prt = PcapReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+    prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
     prt.delete_read_connections = True
     counter = 0
@@ -360,7 +364,7 @@ def count_byte_freq(filename, protocol, port):
             if buffered_packets is None:
                 time.sleep(0.0001)
                 continue
-            if buffered_packets.get_payload_length() > 0:
+            if buffered_packets.get_payload_length("client") > 0:
                 counter += 1
                 sys.stdout.write("\r{} flows.".format(counter))
                 sys.stdout.flush()
