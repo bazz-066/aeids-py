@@ -245,8 +245,8 @@ def byte_freq_generator(filename, protocol, port, batch_size):
                 if buffered_packets is None:
                     time.sleep(0.0001)
                     continue
-                if buffered_packets.get_payload_length("client") > 0:
-                    byte_frequency = buffered_packets.get_byte_frequency("client")
+                if buffered_packets.get_payload_length("server") > 0:
+                    byte_frequency = buffered_packets.get_byte_frequency("server")
                     X = numpy.reshape(byte_frequency, (1, 256))
 
                     if counter == 0 or counter % batch_size == 1:
@@ -274,6 +274,8 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
             prt = LibNidsReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
         else:
             prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+
+        prt.delete_read_connections = True
         prt.start()
     else:
         prt.reset_read_status()
@@ -305,12 +307,12 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
             buffered_packets = prt.pop_connection()
             if buffered_packets is None:
                 continue
-            if buffered_packets.get_payload_length("client") == 0:
+            if buffered_packets.get_payload_length("server") == 0:
                 continue
 
             i_counter += 1
             #print "{}-{}: {}".format(i_counter, buffered_packets.id, buffered_packets.get_payload()[:100])
-            byte_frequency = buffered_packets.get_byte_frequency("client")
+            byte_frequency = buffered_packets.get_byte_frequency("server")
             # ftemp.write(buffered_packets.get_payload())
             # a.writerow(byte_frequency)
             data_x = numpy.reshape(byte_frequency, (1, 256))
@@ -367,7 +369,7 @@ def count_byte_freq(filename, protocol, port):
                 time.sleep(0.0001)
                 missed_counter += 1
                 continue
-            if buffered_packets.get_payload_length("client") > 0:
+            if buffered_packets.get_payload_length("server") > 0:
                 counter += 1
                 sys.stdout.write("\r{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end-start))
                 sys.stdout.flush()
@@ -530,7 +532,7 @@ def get_message_id(buffered_packet):
         cursor.execute("""INSERT INTO messages (src_ip, src_port, dst_ip, dst_port, protocol, start_time, stop_time, """
                        """payload, window_size) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                        (src_addr, src_port, dst_addr, dst_port, protocol, start_time, stop_time,
-                        psycopg2.Binary(buffered_packet.get_payload()), WINDOW_SIZE))
+                        psycopg2.Binary(buffered_packet.get_payload("server")), WINDOW_SIZE))
         if cursor.rowcount == 1:
             row = cursor.fetchone()
             conn.commit()

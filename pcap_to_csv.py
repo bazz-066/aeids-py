@@ -9,6 +9,7 @@ def main(argv):
         filename = argv[1]
         protocol = "tcp"
         prt = LibNidsReaderThread(filename, protocol)
+        prt.delete_read_connections = True
         prt.start()
         fcsv = open("csv/test.csv", "w")
         counter = 0

@@ -1,6 +1,10 @@
 from collections import deque
 from TcpMessage import TcpMessage
 
+from inspect import getmembers
+from pprint import pprint
+
+import binascii
 import nids
 import threading
 
@@ -44,17 +48,23 @@ class LibNidsReaderThread(threading.Thread):
             ((src, sport), (dst, dport)) = tcp.addr
             tcp.client.collect = 1
             tcp.server.collect = 1
+            tcp.start_ts = nids.get_pkt_ts()
 
         elif tcp.nids_state == nids.NIDS_DATA:
             tcp.discard(0)
 
         elif tcp.nids_state in end_states:
             ((src, sport), (dst, dport)) = tcp.addr
-            # print "[+] %s:%s - %s:%s (CTS: %dB | STC: %dB)" % (src, sport, dst, dport,
-            #                                                    len(tcp.server.data[:tcp.server.count]),
-            #                                                    len(tcp.client.data[:tcp.client.count]))
+            tcp.stop_ts = nids.get_pkt_ts()
+            print "[+](%s-%s) %s:%s - %s:%s (CTS: %dB | STC: %dB)" % (tcp.start_ts, tcp.stop_ts, src, sport, dst, dport,
+                                                               len(tcp.server.data[:tcp.server.count]),
+                                                               len(tcp.client.data[:tcp.client.count]))
+            # pprint(getmembers(tcp.client))
 
-            msg = TcpMessage(tcp.client.data, tcp.server.data, (src, sport, dst, dport))
+            print(binascii.hexlify(tcp.server.data))
+            print(len(tcp.server.data))
+            raw_input("Enter to continue")
+            msg = TcpMessage(tcp.client.data, tcp.server.data, (src, sport, dst, dport), tcp.start_ts, tcp.stop_ts)
             self.lock.acquire()
             self.connection_list.append(msg)
             self.lock.release()
@@ -99,7 +109,7 @@ class LibNidsReaderThread(threading.Thread):
 
     def reset_read_status(self):
         self.lock.acquire()
-        print "Resetting read status"
+        # print "Resetting read status"
         for msg in self.connection_list:
             msg.read = False
 
