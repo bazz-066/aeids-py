@@ -4,10 +4,10 @@ from keras.models import load_model
 from keras.models import Model
 from keras.layers import Dense, Input, Dropout
 from keras.models import model_from_json
-from LibNidsReaderThread import LibNidsReaderThread
-from PcapReaderThread import PcapReaderThread
+# from LibNidsReaderThread import LibNidsReaderThread
+# from PcapReaderThread import PcapReaderThread
+from StreamReaderThread import StreamReaderThread
 from tensorflow import Tensor
-from TcpMessage import TcpMessage
 
 import binascii
 import math
@@ -231,7 +231,7 @@ def load_autoencoder(filename, protocol, port, hidden_layers, activation_functio
 def byte_freq_generator(filename, protocol, port, batch_size):
     global prt
     global conf
-    prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+    prt = StreamReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
     counter = 0
 
@@ -271,9 +271,9 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
 
     if prt is None:
         if phase == "testing":
-            prt = LibNidsReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
+            prt = StreamReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
         else:
-            prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+            prt = StreamReaderThread(get_pcap_file_fullpath(filename), protocol, port)
 
         prt.delete_read_connections = True
         prt.start()
@@ -300,7 +300,7 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
     # time.sleep(2)
     i_counter = 0
     # for i in range(0,10):
-    while not prt.done or prt.has_ready_message():
+    while (not prt.done) or (prt.has_ready_message()):
         if not prt.has_ready_message():
             time.sleep(0.0001)
         else:
@@ -311,7 +311,8 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
                 continue
 
             i_counter += 1
-            #print "{}-{}: {}".format(i_counter, buffered_packets.id, buffered_packets.get_payload()[:100])
+            # print "{}-{}".format(i_counter, buffered_packets.id)
+            # print "{}-{}: {}".format(i_counter, buffered_packets.id, buffered_packets.get_payload("server")[:100])
             byte_frequency = buffered_packets.get_byte_frequency("server")
             # ftemp.write(buffered_packets.get_payload())
             # a.writerow(byte_frequency)
@@ -350,7 +351,7 @@ def count_byte_freq(filename, protocol, port):
 
     read_conf()
 
-    prt = LibNidsReaderThread(get_pcap_file_fullpath(filename), protocol, port)
+    prt = StreamReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
     prt.delete_read_connections = True
     counter = 0
@@ -358,20 +359,26 @@ def count_byte_freq(filename, protocol, port):
 
     while not prt.done or prt.has_ready_message():
         if not prt.has_ready_message():
+            # print(1)
             time.sleep(0.0001)
             missed_counter += 1
+            sys.stdout.write("\r1-{} flows. Missed: {}. {} items in buffer. packets: {}. last ts: {}".format(counter, missed_counter, len(prt.tcp_buffer), prt.packet_counter, prt.last_timestamp))
+            sys.stdout.flush()
             continue
         else:
             start = time.time()
             buffered_packets = prt.pop_connection()
             end = time.time()
             if buffered_packets is None:
+                # print(2)
                 time.sleep(0.0001)
                 missed_counter += 1
+                sys.stdout.write("\r2-{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end - start))
+                sys.stdout.flush()
                 continue
             if buffered_packets.get_payload_length("server") > 0:
                 counter += 1
-                sys.stdout.write("\r{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end-start))
+                sys.stdout.write("\r3-{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end-start))
                 sys.stdout.flush()
 
     print "Total flows: {}".format(counter)
