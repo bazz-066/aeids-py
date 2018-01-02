@@ -61,50 +61,50 @@ threshold = "median"
 def main(argv):
     try:
         # validate command line arguments
-        if sys.argv[1] != "training" and sys.argv[1] != "predicting" and sys.argv[1] != "testing" and sys.argv[1] != "counting":
-            raise IndexError("Phase {} does not exist.".format(sys.argv[1]))
+        if argv[1] != "training" and argv[1] != "predicting" and argv[1] != "testing" and argv[1] != "counting":
+            raise IndexError("Phase {} does not exist.".format(argv[1]))
         else:
-            phase = sys.argv[1]
+            phase = argv[1]
 
-        if sys.argv[2] != "tcp" and sys.argv[2] != "udp":
-            raise IndexError("Protocol {} is not supported.".format(sys.argv[3]))
+        if argv[2] != "tcp" and argv[2] != "udp":
+            raise IndexError("Protocol {} is not supported.".format(argv[3]))
         else:
-            protocol = sys.argv[2]
+            protocol = argv[2]
 
-        if not sys.argv[3].isdigit():
+        if not argv[3].isdigit():
             raise IndexError("Port must be numeric.")
         else:
-            port = sys.argv[3]
+            port = argv[3]
 
         # must be in form of comma separated, representing half of the layers (e.g. 200,100 means there are 3 layers,
         # with 200, 100, and 200 neurons respectively)
         if phase != "counting":
             try:
-                hidden_layers = sys.argv[4].split(",")
+                hidden_layers = argv[4].split(",")
                 for neurons in hidden_layers:
                     if not neurons.isdigit():
                         raise IndexError("Hidden layers must be comma separated numeric values")
             except ValueError:
                 raise IndexError("Hidden layers must be comma separated numeric values")
 
-            if sys.argv[5] not in activation_functions:
+            if argv[5] not in activation_functions:
                 raise IndexError("Activation function must be one of the following list")
             else:
-                activation_function = sys.argv[5]
+                activation_function = argv[5]
 
             try:
-                dropout = float(sys.argv[6])
+                dropout = float(argv[6])
             except ValueError:
                 raise IndexError("Dropout must be numeric.")
 
-            if phase == "training" and not sys.argv[8].isdigit():
+            if phase == "training" and not argv[8].isdigit():
                 raise IndexError("Batch size must be numeric.")
             elif phase == "training" or phase == "predicting":
-                batch_size = int(sys.argv[8])
+                batch_size = int(argv[8])
 
             filename = argv[7]
             if phase == "testing":
-                aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, sys.argv[8])
+                aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, argv[8])
             else:
                 aeids(phase, filename, protocol, port, hidden_layers, activation_function, dropout, batch_size=batch_size)
         else:
@@ -126,6 +126,7 @@ def main(argv):
 
 def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_layers = [200,100], activation_function = "relu", dropout = 0.0, testing_filename = "", batch_size = 1):
     global done
+    global prt
     read_conf()
 
     if phase == "training":
@@ -147,13 +148,14 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
             autoencoder.save("models/{}/aeids-with-log-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
         else:
             autoencoder.fit_generator(byte_freq_generator(filename, protocol, port, batch_size), steps_per_epoch=steps_per_epoch,
-                                      epochs=20, verbose=1)
+                                      epochs=10, verbose=1)
             check_directory(filename, "models")
             autoencoder.save("models/{}/aeids-{}-hl{}-af{}-do{}.hdf5".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), overwrite=True)
 
         print "Training autoencoder finished. Calculating threshold..."
         predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_layers, activation_function, dropout, phase)
         done = True
+        prt = None
         print "\nFinished."
     elif phase == "predicting":
         autoencoder = load_autoencoder(filename, protocol, port, hidden_layers, activation_function, dropout)
@@ -163,6 +165,7 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
     elif phase == "testing":
         autoencoder = load_autoencoder(filename, protocol, port, hidden_layers, activation_function, dropout)
         predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_layers, activation_function, dropout, phase, testing_filename)
+        prt = None
         print "\nFinished."
     else:
         raise IndexError
@@ -231,9 +234,11 @@ def load_autoencoder(filename, protocol, port, hidden_layers, activation_functio
 def byte_freq_generator(filename, protocol, port, batch_size):
     global prt
     global conf
+    global done
     prt = StreamReaderThread(get_pcap_file_fullpath(filename), protocol, port)
     prt.start()
     counter = 0
+    done = False
 
     while not done:
         while not prt.done or prt.has_ready_message():

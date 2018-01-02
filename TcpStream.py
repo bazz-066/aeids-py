@@ -1,6 +1,8 @@
 from impacket import ImpactPacket, ImpactDecoder
 
 import binascii
+import threading
+import time
 from pprint import pprint
 from inspect import getmembers
 
@@ -55,10 +57,13 @@ def __calculate_byte_frequency__(payload, length):
 
     return byte_frequency
 
-class TcpStream():
-    def __init__(self, id, start_time):
+
+class TcpStream(threading.Thread):
+    def __init__(self, id, start_time, reader_thread):
+        threading.Thread.__init__(self)
         info = id.split("-")
         self.tcp_tuple = (info[0], info[1], info[2], info[3])
+        self.reader_thread = reader_thread
         self.id = id
         self.start_time = start_time
         self.stop_time = -1
@@ -76,6 +81,19 @@ class TcpStream():
         self.client_bf = None
         self.server_bf = None
         self.read = False
+
+    def run(self):
+        while self.state not in end_states:
+            if self.reader_thread.is_timeout(self.last_packet_time) and self.state not in end_states:
+                self.state = STATE_TIMEOUT
+            else:
+                # time.sleep(0.0001)
+                continue
+
+        self.finish()
+        # print(threading.current_thread().name + "move-in")
+        self.reader_thread.move_stream(self.id)
+        # print(threading.current_thread().name + "move-out")
 
 
     # TODO: consider IP fragmentation
