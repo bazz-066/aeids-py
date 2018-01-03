@@ -22,6 +22,7 @@ class StreamReaderThread(threading.Thread):
         self.port = port
         self.protocol = protocol
         self.lock = threading.Lock()
+        self.condition_lock = threading.Condition()
         self.delete_read_connections = False
         self.last_timestamp = -1
         self.buffer_watcher = BufferWatcher(self)
@@ -51,6 +52,7 @@ class StreamReaderThread(threading.Thread):
     def parse_packet(self, header, frame):
         # TODO: automatically check what the underlying decoder is
         decoder = ImpactDecoder.EthDecoder()
+        # decoder = ImpactDecoder.LinuxSLLDecoder()
         ether = decoder.decode(frame)
         ts = float(str(header.getts()[0]) + "." + str(header.getts()[1]))
         self.last_timestamp = ts
@@ -105,6 +107,11 @@ class StreamReaderThread(threading.Thread):
         #     print("------------------------------")
         del(self.tcp_buffer[id])
         self.lock.release()
+        self.condition_lock.acquire()
+        # print("notify")
+        self.condition_lock.notify()
+        # print("done notifying")
+        self.condition_lock.release()
 
     def has_ready_message(self):
         # self.lock.acquire()
@@ -152,6 +159,13 @@ class StreamReaderThread(threading.Thread):
                 # print(threading.current_thread().name + "pop out4")
                 return tcp_stream
 
+    def wait_for_data(self):
+        self.condition_lock.acquire()
+        # print("wait")
+        self.condition_lock.wait(0.1)
+        # print("notified")
+        self.condition_lock.release()
+
     def reset_read_status(self):
         self.lock.acquire()
         # print "Resetting read status"
@@ -174,6 +188,17 @@ class StreamReaderThread(threading.Thread):
         else:
             # self.lock.release()
             return False
+
+    def acquire_lock(self, caller):
+        print(caller + "-try")
+        self.lock.acquire()
+        print(caller + "-get")
+
+    def release_lock(self, caller):
+        print(caller + "-out")
+        self.lock.release()
+        print(caller + "-bye")
+
 
 
 class BufferWatcher(threading.Thread):

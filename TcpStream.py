@@ -87,8 +87,8 @@ class TcpStream(threading.Thread):
             if self.reader_thread.is_timeout(self.last_packet_time) and self.state not in end_states:
                 self.state = STATE_TIMEOUT
             else:
-                # time.sleep(0.0001)
-                continue
+                time.sleep(0.0001)
+                # continue
 
         self.finish()
         # print(threading.current_thread().name + "move-in")

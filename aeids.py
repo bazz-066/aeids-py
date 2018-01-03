@@ -365,10 +365,11 @@ def count_byte_freq(filename, protocol, port):
     while not prt.done or prt.has_ready_message():
         if not prt.has_ready_message():
             # print(1)
-            time.sleep(0.0001)
+            # time.sleep(0.0001)
             missed_counter += 1
             sys.stdout.write("\r1-{} flows. Missed: {}. {} items in buffer. packets: {}. last ts: {}".format(counter, missed_counter, len(prt.tcp_buffer), prt.packet_counter, prt.last_timestamp))
             sys.stdout.flush()
+            prt.wait_for_data()
             continue
         else:
             start = time.time()
@@ -376,10 +377,11 @@ def count_byte_freq(filename, protocol, port):
             end = time.time()
             if buffered_packets is None:
                 # print(2)
-                time.sleep(0.0001)
+                # time.sleep(0.0001)
                 missed_counter += 1
                 sys.stdout.write("\r2-{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end - start))
                 sys.stdout.flush()
+                prt.wait_for_data()
                 continue
             if buffered_packets.get_payload_length("server") > 0:
                 counter += 1
