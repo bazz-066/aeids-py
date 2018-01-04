@@ -25,15 +25,12 @@ class StreamReaderThread(threading.Thread):
         self.condition_lock = threading.Condition()
         self.delete_read_connections = False
         self.last_timestamp = -1
-        self.buffer_watcher = BufferWatcher(self)
         self.packet_counter = 0
 
-        print "{} dst port {}".format(self.protocol, self.port)
+        print("{} dst port {}".format(self.protocol, self.port))
         self.pcap.setfilter("{} port {}".format(self.protocol, self.port))
 
     def run(self):
-        # self.buffer_watcher.start()
-
         while not self.done:
             (header, frame) = self.pcap.next()
             if not header:
@@ -41,18 +38,22 @@ class StreamReaderThread(threading.Thread):
 
             self.parse_packet(header, frame)
 
-        # self.buffer_watcher.done = True
-        self.buffer_watcher.empty_buffer()
-        print "waiting for all threads to finish"
+        self.empty_buffer()
+        print("waiting for all threads to finish")
         while len(self.tcp_buffer) > 0:
             time.sleep(0.0001)
-        print "main loop finished"
+        print("main loop finished")
         self.done = True
 
     def parse_packet(self, header, frame):
         # TODO: automatically check what the underlying decoder is
-        decoder = ImpactDecoder.EthDecoder()
-        # decoder = ImpactDecoder.LinuxSLLDecoder()
+        datalink = self.pcap.datalink()
+        if datalink == pcapy.DLT_EN10MB:
+            decoder = ImpactDecoder.EthDecoder()
+        elif datalink == pcapy.DLT_LINUX_SLL:
+            decoder = ImpactDecoder.LinuxSLLDecoder()
+        else:
+            raise Exception("Datalink not supported")
         ether = decoder.decode(frame)
         ts = float(str(header.getts()[0]) + "." + str(header.getts()[1]))
         self.last_timestamp = ts
@@ -66,7 +67,7 @@ class StreamReaderThread(threading.Thread):
 
             # print("Buffer", self.tcp_buffer)
             # print(threading.current_thread().name + "in",)
-            self.lock.acquire()
+            self.acquire_lock("parse")
             # print(threading.current_thread().name + "out")
             if id in self.tcp_buffer:
                 tcp_stream = self.tcp_buffer[id]
@@ -92,12 +93,12 @@ class StreamReaderThread(threading.Thread):
             #     self.move_stream(tcp_stream.id)
 
             self.packet_counter += 1
-            self.lock.release()
+            self.release_lock("parse")
             # print(threading.current_thread().name + "out2")
 
     def move_stream(self, id):
         # print("[del] ID: " + id + ";" + str(self.tcp_buffer[id].client_data_len) + ";" + str(self.tcp_buffer[id].server_data_len))
-        self.lock.acquire()
+        self.acquire_lock("move")
         if self.tcp_buffer[id].client_data_len > 0 or self.tcp_buffer[id].server_data_len > 0:
             self.ready_tcp_buffer.append(self.tcp_buffer[id])
         # else:
@@ -106,7 +107,7 @@ class StreamReaderThread(threading.Thread):
         #     print(self.tcp_buffer[id].get_hexlify_payload("client"))
         #     print("------------------------------")
         del(self.tcp_buffer[id])
-        self.lock.release()
+        self.release_lock("move")
         self.condition_lock.acquire()
         # print("notify")
         self.condition_lock.notify()
@@ -114,48 +115,48 @@ class StreamReaderThread(threading.Thread):
         self.condition_lock.release()
 
     def has_ready_message(self):
-        # self.lock.acquire()
+        # self.acquire_lock()
 
         if not self.delete_read_connections:
             if len(self.ready_tcp_buffer)-1 == self.last_read_index:
-                # self.lock.release()
+                # self.release_lock()
                 return False
             else:
-                # self.lock.release()
+                # self.release_lock()
                 return True
         else:
             if len(self.ready_tcp_buffer) > 0:
-                # self.lock.release()
+                # self.release_lock()
                 return True
             else:
-                # self.lock.release()
+                # self.release_lock()
                 return False
 
     def pop_connection(self):
         # print(threading.current_thread().name + "pop in")
-        self.lock.acquire()
+        self.acquire_lock("pop")
 
         if not self.delete_read_connections:
             if len(self.ready_tcp_buffer)-1 == self.last_read_index:
-                self.lock.release()
+                self.release_lock("pop1")
                 # print(threading.current_thread().name + "pop out1")
                 return None
             else:
                 self.last_read_index += 1
                 tcp_stream = self.ready_tcp_buffer[self.last_read_index]
                 tcp_stream.read = True
-                self.lock.release()
+                self.release_lock("pop2")
                 # print(threading.current_thread().name + "pop out2")
                 return tcp_stream
         else:
             if len(self.ready_tcp_buffer) <= 0:
-                self.lock.release()
+                self.release_lock("pop3")
                 # print(threading.current_thread().name + "pop out3")
                 return None
             else:
                 tcp_stream = self.ready_tcp_buffer[0]
                 del self.ready_tcp_buffer[0]
-                self.lock.release()
+                self.release_lock("pop4")
                 # print(threading.current_thread().name + "pop out4")
                 return tcp_stream
 
@@ -167,13 +168,13 @@ class StreamReaderThread(threading.Thread):
         self.condition_lock.release()
 
     def reset_read_status(self):
-        self.lock.acquire()
+        self.acquire_lock("reset")
         # print "Resetting read status"
         for tcp_stream in self.ready_tcp_buffer:
             tcp_stream.read = False
 
         self.last_read_index = -1
-        self.lock.release()
+        self.release_lock("reset")
 
     def forced_pop_connection(self):
         bp = self.ready_tcp_buffer[0]
@@ -181,68 +182,30 @@ class StreamReaderThread(threading.Thread):
         return bp
 
     def is_timeout(self, stream_last_ts):
-        # self.lock.acquire()
+        # self.acquire_lock()
         if self.last_timestamp - stream_last_ts  > TIMEOUT:
-            # self.lock.release()
+            # self.release_lock()
             return True
         else:
-            # self.lock.release()
+            # self.release_lock()
             return False
 
     def acquire_lock(self, caller):
-        print(caller + "-try")
+        # print(caller + "-try")
         self.lock.acquire()
-        print(caller + "-get")
+        # print(caller + "-got")
 
     def release_lock(self, caller):
-        print(caller + "-out")
+        # print(caller + "-out")
         self.lock.release()
-        print(caller + "-bye")
-
-
-
-class BufferWatcher(threading.Thread):
-    def __init__(self, srt):
-        threading.Thread.__init__(self)
-        self.srt = srt
-        self.done = False
-
-    def run(self):
-        while not self.done:
-            self.cleanup_buffer()
-
-    def cleanup_buffer(self):
-        ready_indices = []
-        # print(self.srt.tcp_buffer)
-        self.srt.lock.acquire()
-        for id, stream in self.srt.tcp_buffer.iteritems():
-            # print("{}: time: {} - {} = {}".format(id, self.srt.last_timestamp, stream.last_packet_time, self.srt.last_timestamp - stream.last_packet_time))
-            if self.srt.last_timestamp - stream.last_packet_time > TIMEOUT and stream.state not in end_states:
-                # mark stream as timeout
-                # print("TIMEOUT", stream.state, stream.id)
-                # print(self.srt.tcp_buffer)
-                stream.state = STATE_TIMEOUT
-                # print(stream.id)
-
-            if stream.state in end_states:
-                stream.finish()
-                # print("move:" + stream.id)
-                ready_indices.append(stream.id)
-
-        for id in ready_indices:
-            self.srt.move_stream(id)
-
-        self.srt.lock.release()
+        # print(caller + "-bye")
 
     def empty_buffer(self):
         ready_indices = []
 
-        self.srt.lock.acquire()
-        for id, stream in self.srt.tcp_buffer.iteritems():
+        self.acquire_lock("empty")
+        for id, stream in self.tcp_buffer.iteritems():
             stream.state = STATE_TIMEOUT
             # stream.finish()
             # ready_indices.append(id)
-        self.srt.lock.release()
-
-        # for id in ready_indices:
-        #    self.srt.move_stream(id)
+        self.release_lock("empty")

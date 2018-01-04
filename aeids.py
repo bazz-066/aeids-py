@@ -243,7 +243,7 @@ def byte_freq_generator(filename, protocol, port, batch_size):
     while not done:
         while not prt.done or prt.has_ready_message():
             if not prt.has_ready_message():
-                time.sleep(0.0001)
+                prt.wait_for_data()
                 continue
             else:
                 buffered_packets = prt.pop_connection()
@@ -307,7 +307,7 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
     # for i in range(0,10):
     while (not prt.done) or (prt.has_ready_message()):
         if not prt.has_ready_message():
-            time.sleep(0.0001)
+            prt.wait_for_data()
         else:
             buffered_packets = prt.pop_connection()
             if buffered_packets is None:
@@ -383,9 +383,13 @@ def count_byte_freq(filename, protocol, port):
                 sys.stdout.flush()
                 prt.wait_for_data()
                 continue
-            if buffered_packets.get_payload_length("server") > 0:
+            elif buffered_packets.get_payload_length("server") > 0:
                 counter += 1
                 sys.stdout.write("\r3-{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end-start))
+                sys.stdout.flush()
+            else:
+                missed_counter += 1
+                sys.stdout.write("\r4-{} flows. Missed: {}. Time: {}".format(counter, missed_counter, end - start))
                 sys.stdout.flush()
 
     print "Total flows: {}".format(counter)
