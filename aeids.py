@@ -277,6 +277,7 @@ def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_la
     if prt is None:
         if phase == "testing":
             prt = StreamReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
+            print("testing filename: " + testing_filename)
         else:
             prt = StreamReaderThread(get_pcap_file_fullpath(filename), protocol, port)
 

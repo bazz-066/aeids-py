@@ -46,7 +46,6 @@ class StreamReaderThread(threading.Thread):
         self.done = True
 
     def parse_packet(self, header, frame):
-        # TODO: automatically check what the underlying decoder is
         datalink = self.pcap.datalink()
         if datalink == pcapy.DLT_EN10MB:
             decoder = ImpactDecoder.EthDecoder()
