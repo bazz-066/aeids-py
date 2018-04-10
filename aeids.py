@@ -155,6 +155,7 @@ def aeids(phase = "training", filename = "", protocol="tcp", port="80", hidden_l
         print "Training autoencoder finished. Calculating threshold..."
         predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_layers, activation_function, dropout, phase)
         done = True
+        prt.cleanup_all_buffers()
         prt = None
         print "\nFinished."
     elif phase == "predicting":

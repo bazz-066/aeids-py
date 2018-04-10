@@ -7,7 +7,7 @@ import pcapy
 import threading
 
 
-TIMEOUT = 10
+TIMEOUT = 2
 end_states = (STATE_CLOSE, STATE_RESET, STATE_TIMEOUT)
 
 
@@ -98,6 +98,7 @@ class StreamReaderThread(threading.Thread):
     def move_stream(self, id):
         # print("[del] ID: " + id + ";" + str(self.tcp_buffer[id].client_data_len) + ";" + str(self.tcp_buffer[id].server_data_len))
         self.acquire_lock("move")
+        self.tcp_buffer[id].finish()
         if self.tcp_buffer[id].client_data_len > 0 or self.tcp_buffer[id].server_data_len > 0:
             self.ready_tcp_buffer.append(self.tcp_buffer[id])
         # else:
@@ -208,3 +209,9 @@ class StreamReaderThread(threading.Thread):
             # stream.finish()
             # ready_indices.append(id)
         self.release_lock("empty")
+
+    def cleanup_all_buffers(self):
+        self.acquire_lock("cleanup")
+        del self.ready_tcp_buffer
+        del self.tcp_buffer
+        self.release_lock("cleanup")

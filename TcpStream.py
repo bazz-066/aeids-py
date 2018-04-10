@@ -90,7 +90,7 @@ class TcpStream(threading.Thread):
                 time.sleep(0.0001)
                 # continue
 
-        self.finish()
+        # self.finish()
         # print(threading.current_thread().name + "move-in")
         self.reader_thread.move_stream(self.id)
         # print(threading.current_thread().name + "move-out")
