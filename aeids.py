@@ -416,7 +416,7 @@ def save_q3_iqr(filename, protocol, port, hidden_layers, activation_function, dr
     iqrplusMC = 1.5 * math.pow(math.e, constant * MC) * iqr
     print "IQR: {}\nMC: {}\nConstant: {}".format(iqr, MC, constant)
     fmean = open("models/{}/median-{}-hl{}-af{}-do{}.txt".format(filename, protocol + port, ",".join(hidden_layers), activation_function, dropout), "w")
-    fmean.write("{},{}".format(qs[2], iqrplusMC))
+    fmean.write("{},{}".format(qs[1], iqrplusMC))
     fmean.close()
 
 
