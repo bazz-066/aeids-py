@@ -274,7 +274,7 @@ def byte_freq_generator(filename, protocol, port, batch_size):
 def predict_byte_freq_generator(autoencoder, filename, protocol, port, hidden_layers, activation_function, dropout, phase="training", testing_filename = ""):
     global prt
     global threshold
-
+    print("test_filename", testing_filename)
     if prt is None:
         if phase == "testing":
             prt = StreamReaderThread(get_pcap_file_fullpath(testing_filename), protocol, port)
